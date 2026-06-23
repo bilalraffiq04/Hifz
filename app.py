@@ -1,93 +1,130 @@
 import os
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+import json
+from flask import Flask, request, jsonify, render_template, session
+from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 import google.generativeai as genai
 
 app = Flask(__name__)
-# Flask uses this to encrypt your login session cookies securely
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-dev-key")
+CORS(app, supports_credentials=True)
 
-# Connect to the Supabase URL you added to Render
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-prod")
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL", "sqlite:///hifz_dev.db")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get("FLASK_ENV") == "production"
 
-# Configure Gemini
+db = SQLAlchemy(app)
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# ──── DATABASE MODELS ────
+# ──── MODELS ────
 class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
-    surahs = db.relationship('UserSurah', backref='user', lazy=True)
+    id           = db.Column(db.Integer, primary_key=True)
+    username     = db.Column(db.String(80), unique=True, nullable=False)
+    email        = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
+    hifz_data    = db.Column(db.Text, default='{}')
 
-class UserSurah(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    surah_name = db.Column(db.String(100), nullable=False)
-    status = db.Column(db.String(20), default="in-pool")  # 'in-pool', 'due', 'not-added'
-    history = db.Column(db.Text, default="[]") 
-
-# Automatically build tables in Supabase if they don't exist yet
 with app.app_context():
     db.create_all()
 
-# ──── AUTHENTICATION ROUTES ────
+# ──── AUTH ────
 @app.route('/api/signup', methods=['POST'])
 def signup():
-    data = request.json
-    if User.query.filter_by(username=data.get('username')).first():
-        return jsonify({"error": "Username already exists"}), 400
-    
-    hashed = generate_password_hash(data.get('password'))
-    new_user = User(username=data.get('username'), password_hash=hashed)
-    db.session.add(new_user)
+    data = request.json or {}
+    username = data.get('username', '').strip()
+    email    = data.get('email', '').strip().lower()
+    password = data.get('password', '')
+
+    if not username or not email or not password:
+        return jsonify({"error": "All fields are required."}), 400
+    if len(password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters."}), 400
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Username already taken."}), 409
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "An account with this email already exists."}), 409
+
+    user = User(
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password)
+    )
+    db.session.add(user)
     db.session.commit()
-    return jsonify({"success": True})
+    session['user_id'] = user.id
+    session.permanent = True
+    return jsonify({"success": True, "username": user.username})
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.json
-    user = User.query.filter_by(username=data.get('username')).first()
-    if user and check_password_hash(user.password_hash, data.get('password')):
-        session['user_id'] = user.id
-        return jsonify({"success": True})
-    return jsonify({"error": "Invalid username or password"}), 401
+    data = request.json or {}
+    identifier = data.get('identifier', '').strip()  # username or email
+    password   = data.get('password', '')
 
-@app.route('/api/logout')
+    user = (User.query.filter_by(username=identifier).first() or
+            User.query.filter_by(email=identifier.lower()).first())
+
+    if not user or not check_password_hash(user.password_hash, password):
+        return jsonify({"error": "Incorrect username/email or password."}), 401
+
+    session['user_id'] = user.id
+    session.permanent = True
+    return jsonify({"success": True, "username": user.username})
+
+@app.route('/api/logout', methods=['POST'])
 def logout():
     session.pop('user_id', None)
-    return redirect(url_for('home'))
+    return jsonify({"success": True})
 
-# ──── SURAH TRACKING DATA ROUTES ────
-@app.route('/api/surahs', methods=['GET', 'POST'])
-def handle_surahs():
+@app.route('/api/me', methods=['GET'])
+def me():
+    if 'user_id' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        session.pop('user_id', None)
+        return jsonify({"error": "User not found"}), 401
+    return jsonify({"username": user.username, "email": user.email})
+
+# ──── HIFZ DATA ────
+@app.route('/api/data', methods=['GET'])
+def get_data():
     if 'user_id' not in session:
         return jsonify({"error": "Unauthorized"}), 401
-    
-    if request.method == 'POST':
-        data = request.json
-        # Check if they already have this surah tracking profile
-        existing = UserSurah.query.filter_by(user_id=session['user_id'], surah_name=data['name']).first()
-        if existing:
-            existing.status = data.get('status', existing.status)
-            existing.history = data.get('history', existing.history)
-        else:
-            new_surah = UserSurah(user_id=session['user_id'], surah_name=data['name'], status=data.get('status', 'in-pool'), history=data.get('history', '[]'))
-            db.session.add(new_surah)
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({"error": "User not found"}), 401
+    try:
+        return jsonify({"data": json.loads(user.hifz_data or '{}')})
+    except Exception:
+        return jsonify({"data": {}})
+
+@app.route('/api/data', methods=['POST'])
+def save_data():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({"error": "User not found"}), 401
+    payload = request.json or {}
+    state = payload.get('state')
+    if state is None:
+        return jsonify({"error": "No state provided"}), 400
+    try:
+        user.hifz_data = json.dumps(state)
         db.session.commit()
         return jsonify({"success": True})
-    
-    user_surahs = UserSurah.query.filter_by(user_id=session['user_id']).all()
-    return jsonify([{"name": s.surah_name, "status": s.status, "history": s.history} for s in user_surahs])
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
 
-# ──── CHAT / GEMINI ROUTE ────
+# ──── GEMINI ────
 @app.route('/api/chat', methods=['POST'])
 def chat():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         user_message = data.get("message", "")
         model = genai.GenerativeModel("gemini-2.5-flash")
         response = model.generate_content(user_message)
@@ -95,12 +132,11 @@ def chat():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ──── HOMEPAGE ROUTING ────
+# ──── SERVE APP ────
 @app.route('/')
 def home():
-    if 'user_id' not in session:
-        return render_template('login.html')
     return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
