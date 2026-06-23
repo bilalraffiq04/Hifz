@@ -10,7 +10,13 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-prod")
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL", "sqlite:///hifz_dev.db")
+db_url = os.environ.get("DATABASE_URL", "sqlite:///hifz_dev.db")
+# pg8000 requires postgresql+pg8000:// dialect prefix
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+pg8000://", 1)
+elif db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+pg8000://", 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get("FLASK_ENV") == "production"
