@@ -1,3 +1,4 @@
+{% raw %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -372,9 +373,8 @@ let _currentUser=null;
 
 function save(){
   localStorage.setItem(STORAGE_KEY,JSON.stringify(S));
-  // Cloud push disabled for local testing
-  // clearTimeout(_saveTimer);
-  // _saveTimer=setTimeout(pushToCloud,1500);
+   clearTimeout(_saveTimer);
+   _saveTimer=setTimeout(pushToCloud,1500);
 }
 
 async function pushToCloud(){
@@ -2789,22 +2789,25 @@ async function doLogout(){
 }
 
 (function init(){
-  // AUTH BYPASSED FOR LOCAL TESTING — restore for production
-  _currentUser='test';
-  load();
-  const intro=document.getElementById('screen-intro');
   setTimeout(()=>{
-    intro.style.animation='introFadeOut 0.55s ease forwards';
-    setTimeout(()=>{
-      intro.classList.add('done');
-      // Hide auth screen
-      const authEl=document.getElementById('screen-auth');
-      if(authEl) authEl.style.display='none';
-      if(S.onboarded){showMainApp();}
-      else{document.getElementById('screen-onboard').classList.add('active');OB.step=0;renderOnboard();}
-    },550);
+    hideIntro(async ()=>{
+      // Check if already logged in (valid session cookie)
+      try{
+        const res=await fetch('/api/me',{credentials:'include'});
+        if(res.ok){
+          const d=await res.json();
+          _currentUser=d.username;
+          await afterLogin();
+          return;
+        }
+      }catch(e){}
+      // Not logged in — show auth screen
+      document.getElementById('screen-auth').style.display='flex';
+      renderAuthForm();
+    });
   },2400);
 })();
 </script>
 </body>
 </html>
+{% endraw %}
