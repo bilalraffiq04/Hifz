@@ -126,6 +126,76 @@ def save_data():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+# ──── ACCOUNT MANAGEMENT ────
+@app.route('/api/account/update', methods=['POST'])
+def account_update():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({"error": "User not found"}), 401
+    data = request.json or {}
+    if 'name' in data:
+        # Store display name in hifz_data profile
+        import json as _json
+        try:
+            hd = _json.loads(user.hifz_data or '{}')
+            hd.setdefault('profile', {})['name'] = data['name'].strip()
+            user.hifz_data = _json.dumps(hd)
+        except Exception:
+            pass
+    if 'username' in data:
+        new_username = data['username'].strip()
+        if not new_username:
+            return jsonify({"error": "Username cannot be empty."}), 400
+        existing = User.query.filter_by(username=new_username).first()
+        if existing and existing.id != user.id:
+            return jsonify({"error": "Username already taken."}), 409
+        user.username = new_username
+    if 'email' in data:
+        new_email = data['email'].strip().lower()
+        if not new_email:
+            return jsonify({"error": "Email cannot be empty."}), 400
+        existing = User.query.filter_by(email=new_email).first()
+        if existing and existing.id != user.id:
+            return jsonify({"error": "An account with this email already exists."}), 409
+        user.email = new_email
+    db.session.commit()
+    return jsonify({"success": True, "username": user.username})
+
+@app.route('/api/account/password', methods=['POST'])
+def account_password():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({"error": "User not found"}), 401
+    data = request.json or {}
+    current = data.get('currentPassword', '')
+    new_pw = data.get('newPassword', '')
+    if not check_password_hash(user.password_hash, current):
+        return jsonify({"error": "Current password is incorrect."}), 401
+    if len(new_pw) < 6:
+        return jsonify({"error": "New password must be at least 6 characters."}), 400
+    user.password_hash = generate_password_hash(new_pw)
+    db.session.commit()
+    return jsonify({"success": True})
+
+@app.route('/api/account/delete', methods=['POST'])
+def account_delete():
+    if 'user_id' not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+    user = db.session.get(User, session['user_id'])
+    if not user:
+        return jsonify({"error": "User not found"}), 401
+    data = request.json or {}
+    if not check_password_hash(user.password_hash, data.get('password', '')):
+        return jsonify({"error": "Incorrect password."}), 401
+    db.session.delete(user)
+    db.session.commit()
+    session.pop('user_id', None)
+    return jsonify({"success": True})
+
 # ──── GEMINI ────
 @app.route('/api/chat', methods=['POST'])
 def chat():
