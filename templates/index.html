@@ -31,9 +31,9 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html{font-size:16px;scroll-behavior:smooth}
 body{font-family:'Inter',sans-serif;background:var(--teal-950);color:var(--cream);height:100vh;height:100dvh;overflow:hidden;overscroll-behavior:none}
-#app{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
-.screen{display:none;flex-direction:column;min-height:100vh}
-.screen.active{display:flex}
+#app{min-height:100vh;display:flex;flex-direction:column}
+.screen{display:none;flex-direction:column;flex:1;overflow:hidden}
+.screen.active{display:flex;flex:1;overflow:hidden}
 h1,h2{font-family:'Playfair Display',serif}
 h1{font-size:2.2rem;font-weight:700;line-height:1.2}
 h2{font-size:1.4rem;font-weight:600}
