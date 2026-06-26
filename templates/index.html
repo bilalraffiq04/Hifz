@@ -16,6 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
 <style>
 :root{
+  overscroll-behavior: none;
   --teal-950:#0a1f1e;--teal-900:#0d2b29;--teal-800:#103d3a;--teal-700:#155550;
   --teal-600:#1a6e67;--teal-500:#208a81;--teal-400:#2aada2;--teal-300:#4dc9bc;
   --teal-200:#80ddd6;
@@ -31,7 +32,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html{font-size:16px;scroll-behavior:smooth}
 body{font-family:'Inter',sans-serif;background:var(--teal-950);color:var(--cream);height:100vh;height:100dvh;overflow:hidden;overscroll-behavior:none}
-#app{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+#app{height:100%;display:flex;flex-direction:column;overflow:hidden}
 .screen{display:none;flex-direction:column;flex:1;overflow:hidden}
 .screen.active{display:flex;flex:1;overflow:hidden}
 h1,h2{font-family:'Playfair Display',serif}
